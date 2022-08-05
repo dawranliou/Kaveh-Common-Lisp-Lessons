@@ -70,7 +70,8 @@
 ;;;; shape =====================================================================
 
 (defclass shape ()
-  ((transform :accessor transform :initarg :transform :initform (make-instance 'transform))))
+  ((transform :accessor transform :initarg :transform :initform (make-instance 'transform))
+   (show-axis? :accessor show-axis? :initarg :show-axis? :initform nil)))
 
 (defmethod draw ((self shape))
   ;; subclass responsibility
@@ -104,7 +105,22 @@
     (gl:scale (x (scale xform)) (y (scale xform)) 1.0)))
 
 (defmethod draw :after ((self shape))
+  (when (show-axis? self)
+    (draw-axis self))
   (gl:pop-matrix))
+
+(defmethod draw-axis ((self shape))
+  (gl:line-width 3.0)
+  (gl:begin :lines)
+  ;; x axis (red)
+  (gl:color 0.8 0.2 0.2)
+  (gl:vertex 0.0 0.0 0.0)
+  (gl:vertex 0.25 0.0 0.0)
+  ;; y axis (green)
+  (gl:color 0.2 0.8 0.2)
+  (gl:vertex 0.0 0.0 0.0)
+  (gl:vertex 0.0 0.25 0.0)
+  (gl:end))
 
 (defmacro for-scene-shapes (func)
   `(mapcar ,func (shapes *scene*)))
@@ -362,6 +378,8 @@
   (dotimes (i num)
     (princ " ")))
 
+;;;; group ==============================================================
+
 (defclass group (shape)
   ((children :accessor children :initarg :children :initform '())))
 
@@ -388,5 +406,18 @@
 (defmethod print-hierarchy :after ((self group) &optional (indent 0))
   (dolist (child (children self))
     (print-hierarchy child (+ indent 2))))
+
+;;; show polygon-shape number of points
+(defmethod print-object ((self polygon-shape) stream)
+  (print-unreadable-object (self stream :type t :identity t)
+    (format stream "[~a]" (length (points self)))))
+
+;;; traverse hierarchy and execute function
+(defmethod do-hierarchy ((self shape) func)
+  (funcall func self))
+
+(defmethod do-hierarchy :after ((self group) func)
+  (dolist (child (children self))
+    (do-hierarchy child func)))
 ;;
 ;; (run)

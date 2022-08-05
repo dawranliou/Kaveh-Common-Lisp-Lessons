@@ -413,11 +413,146 @@
     (format stream "[~a]" (length (points self)))))
 
 ;;; traverse hierarchy and execute function
-(defmethod do-hierarchy ((self shape) func)
-  (funcall func self))
+(defmethod do-hierarchy ((self shape) func &key (test nil))
+  (when (or (null test) (funcall test self))
+    (funcall func self))
+  self)
 
-(defmethod do-hierarchy :after ((self group) func)
+(defmethod do-hierarchy :after ((self group) func &key (test nil))
   (dolist (child (children self))
-    (do-hierarchy child func)))
-;;
+    (do-hierarchy child func :test test))
+  self)
+
+(defun make-row-group (n spacing shape)
+  (make-instance 'group
+                 :children (loop for i to n
+                                 collect (make-instance
+                                          'group
+                                          :children (list shape)
+                                          :transform (make-instance 'transform
+                                                                    :translate (p* spacing (p! i i)))))))
+
+(defun scatter-group (shape-fn points)
+  (make-instance 'group :children (mapcar (lambda (p)
+                                            (translate-to (funcall shape-fn) p))
+                                          points)))
+
+(defun make-hex-tri-group (levels)
+  (scale-to (scatter-group (lambda ()
+                             (if (= 0 levels)
+                                 (make-hexagon-shape 1.0)
+                                 (make-hex-tri-group (- levels 1))))
+                           (list (p! -.5 -.433)
+                                 (p!  .5 -.433)
+                                 (p!   0  .433)))
+            0.5))
+
+(defun make-square-cross-group (levels)
+  (scale-to (scatter-group (lambda ()
+                             (if (= 0 levels)
+                                 (make-square-shape 0.8)
+                                 (make-square-cross-group (- levels 1))))
+                           (list (p!  0.0  0.0)
+                                 (p! -1.0  0.0)
+                                 (p!  1.0  0.0)
+                                 (p!  0.0 -1.0)
+                                 (p!  0.0  1.0)
+                                 (p! -2.0  0.0)
+                                 (p!  2.0  0.0)
+                                 (p!  0.0 -2.0)
+                                 (p!  0.0  2.0)))
+            0.25))
+
+(defun make-square-x-group (levels)
+  (scale-to (scatter-group (lambda ()
+                             (if (= 0 levels)
+                                 (make-square-shape 1.5)
+                                 (make-square-x-group (- levels 1))))
+                           (list (p! -1.0 -1.0)
+                                 (p!  1.0  1.0)
+                                 (p!  1.0 -1.0)
+                                 (p! -1.0  1.0)
+                                 (p! -2.0 -2.0)
+                                 (p!  2.0  2.0)
+                                 (p!  2.0 -2.0)
+                                 (p! -2.0  2.0)))
+            0.25))
+
+
+;;; generalized recursive group function
+(defun make-recursive-group (levels base-shape-fn points scaling)
+  (scale-to (scatter-group (lambda ()
+                             (if (= 0 levels)
+                                 (funcall base-shape-fn)
+                                 (make-recursive-group (- levels 1)
+                                                       base-shape-fn
+                                                       points
+                                                       scaling)))
+                           points)
+            scaling))
+
+(defmethod is-leaf? ((self shape))
+  t)
+
+(defmethod is-leaf? ((self group))
+  nil)
+
+(defun randomize-size (shape lo hi)
+  (let* ((scale (rand2 lo hi)))
+    (scale-by (transform shape) scale)))
+
+(defmethod jitter-translate ((self shape) (jitter point))
+  (translate-by (transform self)
+                (p! (rand1 (x jitter)) (rand1 (y jitter))))
+  self)
+
+(defmethod jitter-rotate ((self shape) (jitter number))
+  (rotate-by (transform self) (rand1 jitter))
+  self)
+
+(defmethod jitter-scale ((self shape) (jitter number))
+  (scale-by (transform self) (+ 1.0 (rand1 jitter)))
+  self)
+
+(defun make-recursive-group-2 (levels base-shape-fn points scaling translate rotate size)
+  (let ((group (scatter-group (lambda ()
+                                (if (= 0 levels)
+                                    (funcall base-shape-fn)
+                                    (make-recursive-group-2 (- levels 1)
+                                                            base-shape-fn
+                                                            points
+                                                            scaling
+                                                            translate
+                                                            rotate
+                                                            size)))
+                              points)))
+    (jitter-translate group translate)
+    (jitter-rotate group rotate)
+    (jitter-scale group size)
+    (scale-by group scaling)))
+
+(defun make-wobbly-cross (levels)
+  (make-recursive-group-2 levels
+                          (lambda () (make-square-shape 0.8))
+                          (list (p!  0.0  0.0)
+                                (p! -1.0  0.0)
+                                (p!  1.0  0.0)
+                                (p!  0.0 -1.0)
+                                (p!  0.0  1.0)
+                                (p! -2.0  0.0)
+                                (p!  2.0  0.0)
+                                (p!  0.0 -2.0)
+                                (p!  0.0  2.0))
+                          0.25
+                          (p! 0.0 0.0)
+                          10.0
+                          0.5))
+
+(defun randomize-leaf-sizes (group lo hi)
+  (do-hierarchy group (lambda (shape) (randomize-size shape lo hi))
+                      :test #'is-leaf?))
+
+(defun randomize-node-sizes (group lo hi)
+  (do-hierarchy group (lambda (shape) (randomize-size shape lo hi))))
+
 ;; (run)
